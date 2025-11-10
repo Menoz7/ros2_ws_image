@@ -13,15 +13,63 @@ public:
   ImagePublisher(const std::string& image_path) : Node("image_publisher"), count_(0)
   {
     // Carica l'immagine dal file
-    image_ = cv::imread(image_path, cv::IMREAD_COLOR);
+    cv::Mat original_image = cv::imread(image_path, cv::IMREAD_COLOR);
     
-    if (image_.empty()) {
+    if (original_image.empty()) {
       RCLCPP_ERROR(this->get_logger(), "Impossibile caricare l'immagine: %s", image_path.c_str());
       throw std::runtime_error("Errore nel caricamento dell'immagine");
     }
     
-    RCLCPP_INFO(this->get_logger(), "Immagine caricata: %s (dimensioni: %dx%d)", 
-                image_path.c_str(), image_.cols, image_.rows);
+    RCLCPP_INFO(this->get_logger(), "Immagine originale caricata: %s (dimensioni: %dx%d)", 
+                image_path.c_str(), original_image.cols, original_image.rows);
+    
+    // Parametri per il ridimensionamento
+    this->declare_parameter("width", -1);
+    this->declare_parameter("height", -1);
+    this->declare_parameter("scale", 1.0);
+    
+    int target_width = this->get_parameter("width").as_int();
+    int target_height = this->get_parameter("height").as_int();
+    double scale = this->get_parameter("scale").as_double();
+    
+    // Ridimensiona l'immagine se necessario
+    if (scale != 1.0) {
+      // Ridimensionamento tramite scala percentuale
+      int new_width = static_cast<int>(original_image.cols * scale);
+      int new_height = static_cast<int>(original_image.rows * scale);
+      cv::resize(original_image, image_, cv::Size(new_width, new_height), 0, 0, cv::INTER_LINEAR);
+      RCLCPP_INFO(this->get_logger(), "Immagine ridimensionata con scala %.2f: %dx%d -> %dx%d", 
+                  scale, original_image.cols, original_image.rows, image_.cols, image_.rows);
+    } else if (target_width > 0 && target_height > 0) {
+      // Ridimensionamento con larghezza e altezza specifiche
+      cv::resize(original_image, image_, cv::Size(target_width, target_height), 0, 0, cv::INTER_LINEAR);
+      RCLCPP_INFO(this->get_logger(), "Immagine ridimensionata: %dx%d -> %dx%d", 
+                  original_image.cols, original_image.rows, image_.cols, image_.rows);
+    } else if (target_width > 0) {
+      // Ridimensionamento mantenendo aspect ratio (solo larghezza specificata)
+      double aspect_ratio = static_cast<double>(original_image.rows) / original_image.cols;
+      target_height = static_cast<int>(target_width * aspect_ratio);
+      cv::resize(original_image, image_, cv::Size(target_width, target_height), 0, 0, cv::INTER_LINEAR);
+      RCLCPP_INFO(this->get_logger(), "Immagine ridimensionata (mantenendo aspect ratio): %dx%d -> %dx%d", 
+                  original_image.cols, original_image.rows, image_.cols, image_.rows);
+    } else if (target_height > 0) {
+      // Ridimensionamento mantenendo aspect ratio (solo altezza specificata)
+      double aspect_ratio = static_cast<double>(original_image.cols) / original_image.rows;
+      target_width = static_cast<int>(target_height * aspect_ratio);
+      cv::resize(original_image, image_, cv::Size(target_width, target_height), 0, 0, cv::INTER_LINEAR);
+      RCLCPP_INFO(this->get_logger(), "Immagine ridimensionata (mantenendo aspect ratio): %dx%d -> %dx%d", 
+                  original_image.cols, original_image.rows, image_.cols, image_.rows);
+    } else {
+      // Nessun ridimensionamento
+      image_ = original_image;
+      RCLCPP_INFO(this->get_logger(), "Immagine utilizzata senza ridimensionamento: %dx%d", 
+                  image_.cols, image_.rows);
+    }
+    
+    // Calcola e mostra la dimensione approssimativa del messaggio
+    size_t image_size_bytes = image_.total() * image_.elemSize();
+    double image_size_mb = image_size_bytes / (1024.0 * 1024.0);
+    RCLCPP_INFO(this->get_logger(), "Dimensione approssimativa del messaggio: %.2f MB", image_size_mb);
     
     publisher_ = this->create_publisher<sensor_msgs::msg::Image>("camera/image", 10);
     
